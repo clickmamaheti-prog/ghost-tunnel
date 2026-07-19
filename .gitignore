@@ -1,0 +1,10 @@
+.env
+*.log
+*.err
+.DS_Store
+__pycache__/
+*.pyc
+.idea/
+.vscode/
+/tmp/
+node_modules/
