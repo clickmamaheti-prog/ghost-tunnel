@@ -76,7 +76,7 @@ RUN echo '\n\
 ' > /etc/motd \
     && chmod 644 /etc/motd
 
-ARG CACHE_BUST=20260719-v4
+ARG CACHE_BUST=20260719-v5
 
 COPY scripts/tunnel.sh     /usr/local/bin/tunnel.sh
 COPY scripts/watchdog.sh   /usr/local/bin/watchdog.sh
