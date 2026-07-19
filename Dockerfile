@@ -1,11 +1,11 @@
-FROM debian:bookworm-slim
+FROM ubuntu:20.04
 
 ARG BORE_VERSION=0.6.0
 ARG TZ=Asia/Jakarta
 
 LABEL maintainer="Ghost Tunnel" \
-      version="2.0.0" \
-      description="Ghost Tunnel — Bore TCP Tunnel Service"
+      version="2.1.0" \
+      description="Ghost Tunnel — bore.pub TCP Tunnel on Ubuntu 20.04"
 
 ENV DEBIAN_FRONTEND=noninteractive \
     TZ=${TZ} \
@@ -23,10 +23,16 @@ RUN apt-get update && apt-get install -y --no-install-recommends \
         curl \
         wget \
         python3 \
+        python3-pip \
         tzdata \
         procps \
         iproute2 \
+        net-tools \
         netcat-openbsd \
+        htop \
+        tmux \
+        vim \
+        bash \
     && ln -snf /usr/share/zoneinfo/$TZ /etc/localtime \
     && echo $TZ > /etc/timezone \
     && apt-get clean \
@@ -40,6 +46,7 @@ RUN wget -q "https://github.com/ekzhang/bore/releases/download/v${BORE_VERSION}/
     && rm /tmp/bore.tar.gz \
     && bore --version
 
+# Configure SSH
 RUN mkdir -p /run/sshd /var/log/ghost-tunnel \
     && ssh-keygen -A \
     && sed -i \
@@ -54,12 +61,27 @@ RUN mkdir -p /run/sshd /var/log/ghost-tunnel \
         -e 's/#UseDNS.*/UseDNS no/' \
         /etc/ssh/sshd_config
 
-ARG CACHE_BUST=20260719-v3
+# SSH Banner (pre-login)
+COPY config/sshd_banner.txt /etc/ssh/ghost_banner
+RUN echo "Banner /etc/ssh/ghost_banner" >> /etc/ssh/sshd_config \
+    && echo "PrintMotd yes" >> /etc/ssh/sshd_config
 
-COPY scripts/tunnel.sh    /usr/local/bin/tunnel.sh
-COPY scripts/watchdog.sh  /usr/local/bin/watchdog.sh
-COPY scripts/health.py    /usr/local/bin/health.py
-COPY scripts/notify.sh    /usr/local/bin/notify.sh
+# MOTD (post-login)
+RUN echo '\n\
+  ╔══════════════════════════════════════════════╗\n\
+  ║           G H O S T   T U N N E L           ║\n\
+  ║        Professional Bore Tunnel Service      ║\n\
+  ║          Ubuntu 20.04 | bore.pub             ║\n\
+  ╚══════════════════════════════════════════════╝\n\
+' > /etc/motd \
+    && chmod 644 /etc/motd
+
+ARG CACHE_BUST=20260719-v4
+
+COPY scripts/tunnel.sh     /usr/local/bin/tunnel.sh
+COPY scripts/watchdog.sh   /usr/local/bin/watchdog.sh
+COPY scripts/health.py     /usr/local/bin/health.py
+COPY scripts/notify.sh     /usr/local/bin/notify.sh
 COPY scripts/entrypoint.sh /entrypoint.sh
 
 RUN chmod +x /entrypoint.sh \
