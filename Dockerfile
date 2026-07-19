@@ -16,6 +16,10 @@ ENV DEBIAN_FRONTEND=noninteractive \
     PORT=8080 \
     LOG_LEVEL=INFO
 
+# ── Cache bust DISINI — invalidate semua layer berikutnya ──
+ARG CACHE_BUST=20260719-110203
+RUN echo "=== BUILD: Ubuntu 20.04 | CACHE_BUST=20260719-110203 ==="
+
 RUN apt-get update && apt-get install -y --no-install-recommends \
         ca-certificates \
         openssh-server \
@@ -63,20 +67,12 @@ RUN mkdir -p /run/sshd /var/log/ghost-tunnel \
 
 # SSH Banner (pre-login)
 COPY config/sshd_banner.txt /etc/ssh/ghost_banner
-RUN echo "Banner /etc/ssh/ghost_banner" >> /etc/ssh/sshd_config \
+RUN echo "" >> /etc/ssh/sshd_config \
+    && echo "Banner /etc/ssh/ghost_banner" >> /etc/ssh/sshd_config \
     && echo "PrintMotd yes" >> /etc/ssh/sshd_config
 
-# MOTD (post-login)
-RUN echo '\n\
-  ╔══════════════════════════════════════════════╗\n\
-  ║           G H O S T   T U N N E L           ║\n\
-  ║        Professional Bore Tunnel Service      ║\n\
-  ║          Ubuntu 20.04 | bore.pub             ║\n\
-  ╚══════════════════════════════════════════════╝\n\
-' > /etc/motd \
-    && chmod 644 /etc/motd
-
-ARG CACHE_BUST=20260719-v5
+# MOTD (post-login welcome message)
+RUN printf '\n  ╔══════════════════════════════════════════════╗\n  ║           G H O S T   T U N N E L           ║\n  ║        Professional Bore Tunnel Service      ║\n  ║          Ubuntu 20.04  ·  bore.pub           ║\n  ╚══════════════════════════════════════════════╝\n\n' > /etc/motd
 
 COPY scripts/tunnel.sh     /usr/local/bin/tunnel.sh
 COPY scripts/watchdog.sh   /usr/local/bin/watchdog.sh
