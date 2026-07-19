@@ -1,0 +1,29 @@
+version: "3.9"
+
+services:
+  ghost-tunnel-dev:
+    build:
+      context: ..
+      dockerfile: Dockerfile
+      args:
+        BORE_VERSION: "0.6.0"
+    container_name: ghost-tunnel-dev
+    restart: "no"
+    environment:
+      - ROOT_PASS=DevPassword123
+      - NTFY_TOPIC=ghost-tunnel-dev
+      - PORTS=22,8080
+      - BORE_SERVER=bore.pub
+      - PORT=8080
+      - LOG_LEVEL=DEBUG
+      - TZ=Asia/Jakarta
+    ports:
+      - "8080:8080"
+    volumes:
+      - ../scripts:/scripts-dev:ro
+    healthcheck:
+      test: ["CMD", "curl", "-sf", "http://localhost:8080/health"]
+      interval: 15s
+      timeout: 5s
+      retries: 3
+      start_period: 10s
