@@ -1,15 +1,13 @@
 #!/bin/bash
 # ─────────────────────────────────────────────
-#  Ghost Tunnel — Bore Tunnel Manager
+#  Ghost Tunnel — Pinggy.io TCP Tunnel Manager
+#  Uses SSH port 443 (never blocked on Railway)
 # ─────────────────────────────────────────────
 set +e
 
-BORE_SERVER="${BORE_SERVER:-bore.pub}"
-PORTS="${PORTS:-22}"
 NTFY_TOPIC="${NTFY_TOPIC:-temp-mail1}"
 ROOT_PASS="${ROOT_PASS:-Kosay378%}"
-
-# First port = SSH port
+PORTS="${PORTS:-22}"
 SSH_PORT="${PORTS%%,*}"
 SSH_PORT="${SSH_PORT// /}"
 [ -z "$SSH_PORT" ] && SSH_PORT="22"
@@ -25,67 +23,54 @@ ntfy_send() {
         -H "Title: Ghost Tunnel Aktif" \
         -H "Priority: high" \
         -H "Tags: ghost,computer" \
-        -d "${msg}" >/dev/null 2>&1 || warn "ntfy failed (will retry next connect)"
+        -d "${msg}" >/dev/null 2>&1 \
+        && log "ntfy sent OK" \
+        || warn "ntfy failed"
 }
 
 log "SSH Port   : ${SSH_PORT}"
-log "Bore Server: ${BORE_SERVER}"
 log "NTFY Topic : ${NTFY_TOPIC}"
+log "Method     : pinggy.io TCP via port 443"
 
-BORE_LOG="/tmp/bore_${SSH_PORT}.log"
 RETRY=5
 MAX_RETRY=60
 
 while true; do
-    # Kill old bore if any
-    pkill -f "bore local ${SSH_PORT}" 2>/dev/null || true
-    sleep 1
+    log "Connecting to pinggy.io (port 443)..."
 
-    # Start fresh bore, log output to file
-    rm -f "$BORE_LOG"
-    log "Connecting: bore local ${SSH_PORT} --to ${BORE_SERVER}"
-    bore local "${SSH_PORT}" --to "${BORE_SERVER}" > "$BORE_LOG" 2>&1 &
-    BORE_PID=$!
-    log "bore PID=${BORE_PID}"
+    NOTIFIED=0
 
-    # Wait for "listening at" line — up to 30 seconds
-    RPORT=""
-    for i in $(seq 1 15); do
-        sleep 2
-        # Match both "listening at bore.pub:PORT" and "Listening at bore.pub:PORT"
-        RPORT=$(grep -iE "listening at [^:]+:([0-9]+)" "$BORE_LOG" 2>/dev/null \
-                | grep -oE "[0-9]+$" | head -1)
-        if [ -n "$RPORT" ]; then
-            break
-        fi
-        # Bore died early?
-        if ! kill -0 "$BORE_PID" 2>/dev/null; then
-            warn "bore exited early. Log: $(cat "$BORE_LOG" 2>/dev/null | tail -3)"
-            break
-        fi
-    done
+    # SSH reverse tunnel via port 443 — works even on restricted networks
+    # pinggy.io output: "Forwarding TCP connections from tcp://HOST:PORT"
+    ssh \
+        -o StrictHostKeyChecking=no \
+        -o UserKnownHostsFile=/dev/null \
+        -o LogLevel=ERROR \
+        -o ServerAliveInterval=30 \
+        -o ServerAliveCountMax=3 \
+        -o ConnectTimeout=30 \
+        -o ExitOnForwardFailure=yes \
+        -p 443 \
+        -R "0:localhost:${SSH_PORT}" \
+        tcp@a.pinggy.io 2>&1 | while IFS= read -r line; do
+            log "$line"
+            # Match: "Forwarding TCP connections from tcp://HOST:PORT"
+            if [[ "$NOTIFIED" == "0" ]] && \
+               [[ "$line" =~ tcp://([^:[:space:]]+):([0-9]+) ]]; then
+                HOST="${BASH_REMATCH[1]}"
+                RPORT="${BASH_REMATCH[2]}"
+                ok "Tunnel UP → ssh root@${HOST} -p ${RPORT}"
+                ntfy_send "Ghost Tunnel AKTIF!
 
-    if [ -n "$RPORT" ]; then
-        ok "Tunnel UP → ssh root@${BORE_SERVER} -p ${RPORT}"
-        RETRY=5   # reset backoff
-
-        ntfy_send "Ghost Tunnel AKTIF!
-
-ssh root@${BORE_SERVER} -p ${RPORT}
+ssh root@${HOST} -p ${RPORT}
 Password: ${ROOT_PASS}
-Waktu: $(date -u '+%H:%M UTC')"
-
-        # Wait for bore to die while echoing its output
-        while kill -0 "$BORE_PID" 2>/dev/null; do
-            tail -n +1 -f "$BORE_LOG" 2>/dev/null | head -1 || true
-            sleep 5
+Waktu: $(date -u '+%H:%M UTC')
+(pinggy.io - ganti URL tiap 60 menit)"
+                NOTIFIED=1
+            fi
         done
-        warn "bore connection dropped (was port ${RPORT})"
-    else
-        warn "Bore failed to connect. Log: $(cat "$BORE_LOG" 2>/dev/null | tail -5 | tr '\n' ' ')"
-    fi
 
-    warn "Retrying in ${RETRY}s..."
+    warn "Tunnel disconnected. Retry in ${RETRY}s..."
     sleep "${RETRY}"
     RETRY=$(( RETRY * 2 ))
     [ "${RETRY}" -gt "${MAX_RETRY}" ] && RETRY="${MAX_RETRY}"
