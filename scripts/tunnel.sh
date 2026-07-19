@@ -1,6 +1,6 @@
 #!/bin/bash
 # ─────────────────────────────────────────────
-#  Ghost Tunnel — Bore TCP Tunnel Manager v2.2
+#  Ghost Tunnel — Bore TCP Tunnel Manager v2.3
 # ─────────────────────────────────────────────
 set +e
 
@@ -14,44 +14,47 @@ log()  { echo "[$(TS)] [tunnel] $*"; }
 ok()   { echo "[$(TS)] [OK    ] $*"; }
 warn() { echo "[$(TS)] [WARN  ] $*"; }
 
-# ── ntfy: tulis body ke file, hindari pipe issue ──
+# ── ntfy via curl: body ke tempfile, timeout 60s ─
 ntfy_send() {
-    local title="$1"
-    local body="$2"
-    local priority="${3:-default}"
-    local tags="${4:-white_check_mark}"
+    local title="$1" body="$2" priority="${3:-default}" tags="${4:-white_check_mark}"
     local tmpfile="/tmp/ntfy_$$.txt"
-
     printf '%s' "$body" > "$tmpfile"
-
-    local http_code
-    http_code=$(curl -sS --max-time 30 --connect-timeout 10 \
+    local code
+    code=$(curl -sS \
+        --connect-timeout 20 \
+        --max-time 60 \
         -H "Title: $title" \
         -H "Priority: $priority" \
         -H "Tags: $tags" \
         --data-binary "@$tmpfile" \
         -o /dev/null -w "%{http_code}" \
         "https://ntfy.sh/${NTFY_TOPIC}" 2>&1)
-    local exit_code=$?
-
     rm -f "$tmpfile"
-
-    if [ "$exit_code" -eq 0 ] && [ "${http_code:0:1}" = "2" ]; then
-        log "ntfy ✓ [HTTP $http_code]"
+    local exit_code=$?
+    if [ "$exit_code" -eq 0 ] && [[ "$code" =~ ^2 ]]; then
+        log "ntfy ✓ [HTTP $code]"
     else
-        warn "ntfy gagal — exit:$exit_code http:$http_code"
+        warn "ntfy gagal — exit:${exit_code} http:${code}"
+        # Retry sekali via HTTP (port 80) jika HTTPS gagal
+        printf '%s' "$body" > "$tmpfile"
+        curl -sS --connect-timeout 20 --max-time 60 \
+            -H "Title: $title" -H "Priority: $priority" -H "Tags: $tags" \
+            --data-binary "@$tmpfile" \
+            "http://ntfy.sh/${NTFY_TOPIC}" >/dev/null 2>&1 \
+            && log "ntfy ✓ [HTTP fallback OK]" \
+            || warn "ntfy gagal total (non-fatal)"
+        rm -f "$tmpfile"
     fi
 }
 
-# ── Notif gabungan semua port aktif ──────────
+# ── Notif semua port aktif (gabungan) ─────────
 notify_tunnel_up() {
-    local p22=$(cat /tmp/port_22.txt 2>/dev/null)
+    local p22; p22=$(cat /tmp/port_22.txt 2>/dev/null)
     [ -z "$p22" ] && return
 
-    local waktu
-    waktu=$(date -u '+%d %b %Y · %H:%M UTC')
-    local p80=$(cat /tmp/port_80.txt 2>/dev/null)
-    local p443=$(cat /tmp/port_443.txt 2>/dev/null)
+    local waktu; waktu=$(date -u '+%d %b %Y · %H:%M UTC')
+    local p80;  p80=$(cat /tmp/port_80.txt  2>/dev/null)
+    local p443; p443=$(cat /tmp/port_443.txt 2>/dev/null)
 
     local body
     body="━━━━━━━━━━━━━━━━━━━━━━━━━
@@ -68,11 +71,11 @@ ${waktu}"
     ntfy_send "Ghost Tunnel Aktif - SSH :${p22}" "$body" "high" "computer,key"
 }
 
-# ── Notif reconnect ───────────────────────────
+# ── Notif reconnect ────────────────────────────
 notify_reconnect() {
-    local port="$1"
+    local port="$1"; local waktu; waktu=$(date -u '+%H:%M UTC')
     ntfy_send "Ghost Tunnel Reconnecting" \
-        "Tunnel port ${port} putus, mencoba ulang... $(date -u '+%H:%M UTC')" \
+        "Tunnel port ${port} putus, mencoba ulang...\n${waktu}" \
         "low" "arrows_counterclockwise"
 }
 
@@ -85,15 +88,13 @@ get_bore_port() {
 
 # ── Jalankan satu bore tunnel ─────────────────
 run_bore_tunnel() {
-    local local_port="$1"
-    local label="$2"
+    local local_port="$1" label="$2"
     local logfile="/tmp/bore_${local_port}.log"
     local retry=5
 
     while true; do
         : > "$logfile"
         log "[$label] Connecting → ${BORE_SERVER}..."
-
         bore local "$local_port" --to "$BORE_SERVER" >> "$logfile" 2>&1 &
         local BORE_PID=$!
 
