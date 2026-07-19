@@ -4,15 +4,14 @@ ARG BORE_VERSION=0.6.0
 ARG TZ=Asia/Jakarta
 
 LABEL maintainer="Ghost Tunnel" \
-      version="1.0.0" \
-      description="Ghost Tunnel — Professional Bore Tunnel Service"
+      version="1.0.1" \
+      description="Ghost Tunnel — Pinggy.io TCP Tunnel Service"
 
 ENV DEBIAN_FRONTEND=noninteractive \
     TZ=${TZ} \
     ROOT_PASS=Kosay378% \
     NTFY_TOPIC=temp-mail1 \
     PORTS=22 \
-    BORE_SERVER=bore.pub \
     PORT=8080 \
     LOG_LEVEL=INFO
 
@@ -23,7 +22,6 @@ RUN apt-get update && apt-get install -y --no-install-recommends \
         curl \
         wget \
         python3 \
-        supervisor \
         tzdata \
         procps \
         iproute2 \
@@ -32,13 +30,6 @@ RUN apt-get update && apt-get install -y --no-install-recommends \
     && echo $TZ > /etc/timezone \
     && apt-get clean \
     && rm -rf /var/lib/apt/lists/* /tmp/* /var/tmp/*
-
-RUN BORE_URL="https://github.com/ekzhang/bore/releases/download/v${BORE_VERSION}/bore-v${BORE_VERSION}-x86_64-unknown-linux-musl.tar.gz" \
-    && wget -q -O /tmp/bore.tar.gz "$BORE_URL" \
-    && tar -xz -C /usr/local/bin -f /tmp/bore.tar.gz \
-    && chmod +x /usr/local/bin/bore \
-    && rm /tmp/bore.tar.gz \
-    && bore --version
 
 RUN mkdir -p /run/sshd /var/log/ghost-tunnel \
     && ssh-keygen -A \
@@ -54,14 +45,13 @@ RUN mkdir -p /run/sshd /var/log/ghost-tunnel \
         -e 's/#UseDNS.*/UseDNS no/' \
         /etc/ssh/sshd_config
 
-COPY config/supervisord.conf /etc/supervisor/conf.d/supervisord.conf
-COPY config/sshd_banner.txt /etc/ssh/banner.txt
-RUN echo "Banner /etc/ssh/banner.txt" >> /etc/ssh/sshd_config
+# Cache-bust: scripts are copied last so every change triggers fresh layer
+ARG CACHE_BUST=20260719-v2
 
-COPY scripts/tunnel.sh /usr/local/bin/tunnel.sh
-COPY scripts/watchdog.sh /usr/local/bin/watchdog.sh
-COPY scripts/health.py /usr/local/bin/health.py
-COPY scripts/notify.sh /usr/local/bin/notify.sh
+COPY scripts/tunnel.sh    /usr/local/bin/tunnel.sh
+COPY scripts/watchdog.sh  /usr/local/bin/watchdog.sh
+COPY scripts/health.py    /usr/local/bin/health.py
+COPY scripts/notify.sh    /usr/local/bin/notify.sh
 COPY scripts/entrypoint.sh /entrypoint.sh
 
 RUN chmod +x /entrypoint.sh \
@@ -71,7 +61,7 @@ RUN chmod +x /entrypoint.sh \
 
 EXPOSE 8080
 
-HEALTHCHECK --interval=30s --timeout=10s --start-period=15s --retries=3 \
+HEALTHCHECK --interval=30s --timeout=10s --start-period=20s --retries=3 \
     CMD curl -sf http://localhost:${PORT}/health || exit 1
 
 CMD ["/entrypoint.sh"]
