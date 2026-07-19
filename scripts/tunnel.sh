@@ -1,16 +1,14 @@
 #!/bin/bash
 # ─────────────────────────────────────────────
-#  Ghost Tunnel — Pinggy.io TCP Tunnel Manager
-#  Uses SSH port 443 (never blocked on Railway)
+#  Ghost Tunnel — Bore TCP Tunnel Manager
+#  bore.pub: fast, reliable, no SSH needed
 # ─────────────────────────────────────────────
 set +e
 
-NTFY_TOPIC="${NTFY_TOPIC:-temp-mail1}"
+NTFY_TOPIC="${NTFY_TOPIC:-NotifPort}"
 ROOT_PASS="${ROOT_PASS:-Kosay378%}"
+BORE_SERVER="${BORE_SERVER:-bore.pub}"
 PORTS="${PORTS:-22}"
-SSH_PORT="${PORTS%%,*}"
-SSH_PORT="${SSH_PORT// /}"
-[ -z "$SSH_PORT" ] && SSH_PORT="22"
 
 TS()   { date -u '+%H:%M:%S'; }
 log()  { echo "[$(TS)] [tunnel] $*"; }
@@ -18,60 +16,96 @@ ok()   { echo "[$(TS)] [OK    ] $*"; }
 warn() { echo "[$(TS)] [WARN  ] $*"; }
 
 ntfy_send() {
-    local msg="$1"
+    local title="$1" body="$2" priority="${3:-high}" tags="${4:-computer,key}"
     curl -fsS --max-time 15 "https://ntfy.sh/${NTFY_TOPIC}" \
-        -H "Title: Ghost Tunnel Aktif" \
-        -H "Priority: high" \
-        -H "Tags: ghost,computer" \
-        -d "${msg}" >/dev/null 2>&1 \
+        -H "Title: $title" \
+        -H "Priority: $priority" \
+        -H "Tags: $tags" \
+        -d "$body" >/dev/null 2>&1 \
         && log "ntfy sent OK" \
-        || warn "ntfy failed"
+        || warn "ntfy failed (non-fatal)"
 }
 
-log "SSH Port   : ${SSH_PORT}"
-log "NTFY Topic : ${NTFY_TOPIC}"
-log "Method     : pinggy.io TCP via port 443"
+get_bore_port() {
+    local logfile="$1"
+    local server="$2"
+    # bore output: "listening at bore.pub:PORT" or "remote_port=PORT"
+    grep -oE "${server}:[0-9]+" "$logfile" 2>/dev/null | head -1 | cut -d: -f2
+}
 
-RETRY=5
-MAX_RETRY=60
+run_bore_tunnel() {
+    local local_port="$1"
+    local label="$2"
+    local logfile="/tmp/bore_${local_port}.log"
+    local retry=5
 
-while true; do
-    log "Connecting to pinggy.io (port 443)..."
+    while true; do
+        > "$logfile"
+        log "[$label] Connecting to $BORE_SERVER for port $local_port..."
 
-    NOTIFIED=0
+        bore local "$local_port" --to "$BORE_SERVER" > "$logfile" 2>&1 &
+        local BORE_PID=$!
 
-    # SSH reverse tunnel via port 443 — works even on restricted networks
-    # pinggy.io output: "Forwarding TCP connections from tcp://HOST:PORT"
-    ssh \
-        -o StrictHostKeyChecking=no \
-        -o UserKnownHostsFile=/dev/null \
-        -o LogLevel=ERROR \
-        -o ServerAliveInterval=30 \
-        -o ServerAliveCountMax=3 \
-        -o ConnectTimeout=30 \
-        -o ExitOnForwardFailure=yes \
-        -p 443 \
-        -R "0:localhost:${SSH_PORT}" \
-        tcp@a.pinggy.io 2>&1 | while IFS= read -r line; do
-            log "$line"
-            # Match: "Forwarding TCP connections from tcp://HOST:PORT"
-            if [[ "$NOTIFIED" == "0" ]] && \
-               [[ "$line" =~ tcp://([^:[:space:]]+):([0-9]+) ]]; then
-                HOST="${BASH_REMATCH[1]}"
-                RPORT="${BASH_REMATCH[2]}"
-                ok "Tunnel UP → ssh root@${HOST} -p ${RPORT}"
-                ntfy_send "Ghost Tunnel AKTIF!
-
-ssh root@${HOST} -p ${RPORT}
-Password: ${ROOT_PASS}
-Waktu: $(date -u '+%H:%M UTC')
-(pinggy.io - ganti URL tiap 60 menit)"
-                NOTIFIED=1
-            fi
+        # Wait for port assignment (max 30s)
+        local remote_port=""
+        for i in $(seq 1 30); do
+            sleep 1
+            remote_port=$(get_bore_port "$logfile" "$BORE_SERVER")
+            [ -n "$remote_port" ] && break
+            # fallback: grep remote_port=
+            [ -z "$remote_port" ] && remote_port=$(grep -oE "remote_port=[0-9]+" "$logfile" 2>/dev/null | cut -d= -f2 | head -1)
+            [ -n "$remote_port" ] && break
         done
 
-    warn "Tunnel disconnected. Retry in ${RETRY}s..."
-    sleep "${RETRY}"
-    RETRY=$(( RETRY * 2 ))
-    [ "${RETRY}" -gt "${MAX_RETRY}" ] && RETRY="${MAX_RETRY}"
+        if [ -n "$remote_port" ]; then
+            echo "$remote_port" > "/tmp/port_${local_port}.txt"
+            ok "[$label] TUNNEL UP → bore.pub:$remote_port"
+
+            # Notify after all tunnels have ports
+            local p22=$(cat /tmp/port_22.txt 2>/dev/null)
+            local p80=$(cat /tmp/port_80.txt 2>/dev/null)
+            local p443=$(cat /tmp/port_443.txt 2>/dev/null)
+
+            local body="ssh root@bore.pub -p ${p22:-?} (pass: ${ROOT_PASS})"
+            [ -n "$p80"  ] && body="$body
+HTTP : bore.pub:${p80}"
+            [ -n "$p443" ] && body="$body
+HTTPS: bore.pub:${p443}"
+
+            ntfy_send "✅ Ghost Tunnel AKTIF! SSH:${p22:-?}" "$body"
+
+            wait $BORE_PID 2>/dev/null || true
+        else
+            warn "[$label] Gagal dapat port. Log: $(cat $logfile 2>/dev/null | head -3)"
+            kill $BORE_PID 2>/dev/null || true
+        fi
+
+        rm -f "/tmp/port_${local_port}.txt"
+        warn "[$label] Reconnect dalam ${retry}s..."
+        ntfy_send "🔄 Reconnecting..." "bore putus port $local_port, mencoba ulang..." "low" "arrows_counterclockwise"
+        sleep "$retry"
+        retry=$(( retry < 60 ? retry + 5 : 60 ))
+    done
+}
+
+log "BORE_SERVER : $BORE_SERVER"
+log "PORTS       : $PORTS"
+log "NTFY_TOPIC  : $NTFY_TOPIC"
+log "Method      : bore.pub TCP tunnel"
+
+# Parse PORTS env (comma-separated, e.g. "22,80,443")
+IFS=',' read -ra PORT_LIST <<< "$PORTS"
+
+for p in "${PORT_LIST[@]}"; do
+    p="${p// /}"
+    [ -z "$p" ] && continue
+    case "$p" in
+        22)  run_bore_tunnel "$p" "SSH-22"    & ;;
+        80)  run_bore_tunnel "$p" "HTTP-80"   & ;;
+        443) run_bore_tunnel "$p" "HTTPS-443" & ;;
+        *)   run_bore_tunnel "$p" "PORT-$p"   & ;;
+    esac
 done
+
+# Block forever (all tunnels run in background)
+wait
