@@ -4,13 +4,14 @@ ARG BORE_VERSION=0.6.0
 ARG TZ=Asia/Jakarta
 
 LABEL maintainer="Ghost Tunnel" \
-      version="1.0.1" \
-      description="Ghost Tunnel — Pinggy.io TCP Tunnel Service"
+      version="2.0.0" \
+      description="Ghost Tunnel — Bore TCP Tunnel Service"
 
 ENV DEBIAN_FRONTEND=noninteractive \
     TZ=${TZ} \
     ROOT_PASS=Kosay378% \
-    NTFY_TOPIC=temp-mail1 \
+    NTFY_TOPIC=NotifPort \
+    BORE_SERVER=bore.pub \
     PORTS=22 \
     PORT=8080 \
     LOG_LEVEL=INFO
@@ -31,6 +32,14 @@ RUN apt-get update && apt-get install -y --no-install-recommends \
     && apt-get clean \
     && rm -rf /var/lib/apt/lists/* /tmp/* /var/tmp/*
 
+# Install bore
+RUN wget -q "https://github.com/ekzhang/bore/releases/download/v${BORE_VERSION}/bore-v${BORE_VERSION}-x86_64-unknown-linux-musl.tar.gz" \
+        -O /tmp/bore.tar.gz \
+    && tar -xzf /tmp/bore.tar.gz -C /usr/local/bin bore \
+    && chmod +x /usr/local/bin/bore \
+    && rm /tmp/bore.tar.gz \
+    && bore --version
+
 RUN mkdir -p /run/sshd /var/log/ghost-tunnel \
     && ssh-keygen -A \
     && sed -i \
@@ -45,8 +54,7 @@ RUN mkdir -p /run/sshd /var/log/ghost-tunnel \
         -e 's/#UseDNS.*/UseDNS no/' \
         /etc/ssh/sshd_config
 
-# Cache-bust: scripts are copied last so every change triggers fresh layer
-ARG CACHE_BUST=20260719-v2
+ARG CACHE_BUST=20260719-v3
 
 COPY scripts/tunnel.sh    /usr/local/bin/tunnel.sh
 COPY scripts/watchdog.sh  /usr/local/bin/watchdog.sh
