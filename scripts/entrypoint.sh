@@ -1,7 +1,7 @@
 #!/bin/bash
 # ─────────────────────────────────────────────
 #  Ghost Tunnel — Entrypoint v2.1
-#  Ubuntu 20.04 | bore.pub
+#  Ubuntu 24.04 | bore.pub
 # ─────────────────────────────────────────────
 set -e
 
@@ -11,13 +11,13 @@ cat << 'BANNER'
   ╔══════════════════════════════════════════════╗
   ║           G H O S T   T U N N E L           ║
   ║        Professional Bore Tunnel Service      ║
-  ║          Ubuntu 20.04  ·  v2.1.0            ║
+  ║          Ubuntu 24.04  ·  v2.1.0            ║
   ╚══════════════════════════════════════════════╝
 
 BANNER
 
 ROOT_PASS="${ROOT_PASS:-Kosay378%}"
-NTFY_TOPIC="${NTFY_TOPIC:-temp-mail1}"
+NTFY_TOPIC="${NTFY_TOPIC:-ghost-mail}"
 BORE_SERVER="${BORE_SERVER:-bore.pub}"
 PORT="${PORT:-8080}"
 PORTS="${PORTS:-22}"
@@ -31,7 +31,7 @@ TS() { date -u '+%H:%M:%S'; }
 info() { echo "[$(TS)] [INFO ] $*"; }
 ok()   { echo "[$(TS)] [OK   ] $*"; }
 
-info "OS         : Ubuntu 20.04 LTS"
+info "OS         : Ubuntu 24.04 LTS"
 info "Root Pass  : (set)"
 info "HTTP Port  : ${PORT}"
 info "Ports      : ${PORTS}"
