@@ -2,7 +2,7 @@
   ╔══════════════════════════════════════════════╗
   ║           G H O S T   T U N N E L           ║
   ║        Professional Bore Tunnel Service      ║
-  ║          Ubuntu 20.04  ·  bore.pub           ║
+  ║          Ubuntu 24.04  ·  bore.pub           ║
   ╚══════════════════════════════════════════════╝
 
   ⚠  Authorized access only. All sessions logged.
