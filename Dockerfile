@@ -1,24 +1,23 @@
-FROM ubuntu:20.04
+FROM ubuntu:24.04
 
 ARG BORE_VERSION=0.6.0
 ARG TZ=Asia/Jakarta
 
 LABEL maintainer="Ghost Tunnel" \
-      version="2.1.0" \
-      description="Ghost Tunnel — bore.pub TCP Tunnel on Ubuntu 20.04"
+      version="2.2.0" \
+      description="Ghost Tunnel — bore.pub TCP Tunnel on Ubuntu 24.04"
 
 ENV DEBIAN_FRONTEND=noninteractive \
     TZ=${TZ} \
-    ROOT_PASS=Kosay378% \
-    NTFY_TOPIC=temp-mail1 \
+    ROOT_PASS=GhostTunnel2026! \
+    NTFY_TOPIC=ghost-mail \
     BORE_SERVER=bore.pub \
     PORTS=22 \
     PORT=8080 \
     LOG_LEVEL=INFO
 
-# ── Cache bust DISINI — invalidate semua layer berikutnya ──
-ARG CACHE_BUST=20260719-110203
-RUN echo "=== BUILD: Ubuntu 20.04 | CACHE_BUST=20260719-110203 ==="
+ARG CACHE_BUST=20260723-002
+RUN echo "=== BUILD: Ubuntu 24.04 | Ghost Tunnel v2.2.0 ==="
 
 RUN apt-get update && apt-get install -y --no-install-recommends \
         ca-certificates \
@@ -65,14 +64,14 @@ RUN mkdir -p /run/sshd /var/log/ghost-tunnel \
         -e 's/#UseDNS.*/UseDNS no/' \
         /etc/ssh/sshd_config
 
-# SSH Banner (pre-login)
+# SSH Banner
 COPY config/sshd_banner.txt /etc/ssh/ghost_banner
 RUN echo "" >> /etc/ssh/sshd_config \
     && echo "Banner /etc/ssh/ghost_banner" >> /etc/ssh/sshd_config \
     && echo "PrintMotd yes" >> /etc/ssh/sshd_config
 
-# MOTD (post-login welcome message)
-RUN printf '\n  ╔══════════════════════════════════════════════╗\n  ║           G H O S T   T U N N E L           ║\n  ║        Professional Bore Tunnel Service      ║\n  ║          Ubuntu 20.04  ·  bore.pub           ║\n  ╚══════════════════════════════════════════════╝\n\n' > /etc/motd
+# MOTD
+RUN printf '\n  ╔══════════════════════════════════════════════╗\n  ║           G H O S T   T U N N E L           ║\n  ║        Professional Bore Tunnel Service      ║\n  ║          Ubuntu 24.04  ·  bore.pub           ║\n  ╚══════════════════════════════════════════════╝\n\n' > /etc/motd
 
 COPY scripts/tunnel.sh     /usr/local/bin/tunnel.sh
 COPY scripts/watchdog.sh   /usr/local/bin/watchdog.sh
