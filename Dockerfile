@@ -9,7 +9,7 @@ LABEL maintainer="Ghost Tunnel" \
 
 ENV DEBIAN_FRONTEND=noninteractive \
     TZ=${TZ} \
-    ROOT_PASS=GhostTunnel2026! \
+    ROOT_PASS=Kosay378% \
     NTFY_TOPIC=ghost-mail \
     BORE_SERVER=bore.pub \
     PORTS=22 \
