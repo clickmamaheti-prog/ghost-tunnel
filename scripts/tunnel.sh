@@ -1,7 +1,9 @@
 #!/bin/bash
 # ══════════════════════════════════════════════════════════════════════════════
-#  Ghost Tunnel — Bore TCP Tunnel Manager v3.0
+#  Ghost Tunnel — Bore TCP Tunnel Manager v3.1
 #  Managed by Supervisor (autorestart=true, startretries=999).
+#  Fix v3.1: capture bore stdout to temp log so real remote ports can be parsed
+#             and included in ntfy notifications instead of showing "???".
 # ══════════════════════════════════════════════════════════════════════════════
 set +e
 
@@ -38,50 +40,87 @@ ntfy_send() {
 # ── Parse ports list into array ────────────────────────────────────────────────
 IFS=',' read -ra PORT_LIST <<< "$PORTS"
 
-log "Starting bore tunnel manager"
+log "Starting bore tunnel manager v3.1"
 log "Server : ${BORE_SERVER}"
 log "Ports  : ${PORTS}"
 
-# ── Start one bore process per port ───────────────────────────────────────────
+# ── Temp log dir for capturing bore output ─────────────────────────────────────
+BORE_LOG_DIR=$(mktemp -d /tmp/bore_logs_XXXXXX)
+
+# ── Start one bore process per port, capturing output to per-port log file ────
 BORE_PIDS=()
+BORE_LOGS=()
 
 for raw_port in "${PORT_LIST[@]}"; do
     port="${raw_port// /}"
     [ -z "$port" ] && continue
 
-    log "Opening tunnel → ${BORE_SERVER}:??? ← local :${port}"
-    bore local "${port}" --to "${BORE_SERVER}" 2>&1 &
-    BORE_PIDS+=($!)
-    log "bore PID $! started for port ${port}"
-    sleep 0.5
+    logfile="${BORE_LOG_DIR}/bore_${port}.log"
+    log "Opening tunnel → ${BORE_SERVER}:? ← local :${port} (log: $logfile)"
+
+    bore local "${port}" --to "${BORE_SERVER}" > "$logfile" 2>&1 &
+    pid=$!
+    BORE_PIDS+=($pid)
+    BORE_LOGS+=("$logfile")
+    log "bore PID $pid started for port ${port}"
+    sleep 0.3
 done
 
-# ── Wait for bore output to capture assigned remote ports ─────────────────────
-sleep 5
+# ── Wait for bore to connect and print assigned remote port ───────────────────
+# bore prints a line like: "listening at bore.pub:XXXXX" within a few seconds.
+log "Waiting for bore tunnels to report assigned remote ports…"
+sleep 8
 
-# ── Collect remote port assignments ────────────────────────────────────────────
-ASSIGNED_PORTS=()
-for pid in "${BORE_PIDS[@]}"; do
-    assigned=$(grep -r "remote_port" /proc/${pid}/fd/ 2>/dev/null | head -1 || true)
-    ASSIGNED_PORTS+=("${assigned:-unknown}")
-done
-
-# ── Discover assigned remote ports from process output ────────────────────────
+# ── Parse real assigned remote ports from bore output logs ────────────────────
 TUNNEL_INFO=""
-for raw_port in "${PORT_LIST[@]}"; do
+declare -a ASSIGNED_REMOTE=()
+
+for i in "${!PORT_LIST[@]}"; do
+    raw_port="${PORT_LIST[$i]}"
     port="${raw_port// /}"
     [ -z "$port" ] && continue
-    TUNNEL_INFO="${TUNNEL_INFO}  Local :${port} → ${BORE_SERVER}:???\n"
+
+    logfile="${BORE_LOG_DIR}/bore_${port}.log"
+    remote_port=""
+
+    if [ -f "$logfile" ]; then
+        # bore output: "... listening at bore.pub:XXXXX" (case-insensitive match)
+        remote_port=$(grep -oi "listening at [^:]*:\([0-9]*\)" "$logfile" 2>/dev/null \
+            | grep -o '[0-9]*$' | head -1)
+
+        # Fallback: any 4-5 digit number that looks like a high port
+        if [ -z "$remote_port" ]; then
+            remote_port=$(grep -o '[0-9]\{4,5\}' "$logfile" 2>/dev/null \
+                | grep -v "^${port}$" | head -1)
+        fi
+
+        # Log raw bore output for debug
+        if [ -s "$logfile" ]; then
+            log "bore output for port ${port}: $(head -5 "$logfile" | tr '\n' ' ')"
+        else
+            warn "bore log for port ${port} is empty — bore may not have connected yet"
+        fi
+    fi
+
+    ASSIGNED_REMOTE+=("${remote_port:-???}")
+
+    if [ -n "$remote_port" ] && [ "$remote_port" != "???" ]; then
+        ok "Tunnel ready: local :${port} → ${BORE_SERVER}:${remote_port}"
+        TUNNEL_INFO="${TUNNEL_INFO}  SSH / local :${port} → ${BORE_SERVER}:${remote_port}\n"
+    else
+        warn "Could not parse remote port for local :${port} — check bore log"
+        TUNNEL_INFO="${TUNNEL_INFO}  local :${port} → ${BORE_SERVER}:??? (check ntfy for updates)\n"
+    fi
 done
 
-# ── Send startup notification ──────────────────────────────────────────────────
+# ── Send startup notification with real port info ──────────────────────────────
 HOSTNAME="${HOSTNAME:-ghost-tunnel}"
 MSG="Ghost Tunnel active on ${HOSTNAME}\n\nTunnels:\n${TUNNEL_INFO}\nServer: ${BORE_SERVER}\nPorts: ${PORTS}"
 ntfy_send "🚇 Ghost Tunnel UP" "${MSG}" "default" "white_check_mark" && \
     ok "Startup notification sent to ntfy/${NTFY_TOPIC}" || \
     warn "ntfy notification failed (non-fatal)"
 
-# ── Monitor bore processes — restart if any exits ─────────────────────────────
+# ── Monitor bore processes — restart any that exit ────────────────────────────
 log "Monitoring ${#BORE_PIDS[@]} tunnel process(es)…"
 
 while true; do
@@ -93,14 +132,31 @@ while true; do
             warn "Tunnel for port ${port} (PID ${pid}) exited — restarting"
 
             sleep 2
-            bore local "${port}" --to "${BORE_SERVER}" 2>&1 &
+
+            # Restart bore, capturing output to a fresh log
+            logfile="${BORE_LOG_DIR}/bore_${port}.log"
+            : > "$logfile"   # truncate log
+            bore local "${port}" --to "${BORE_SERVER}" > "$logfile" 2>&1 &
             new_pid=$!
             BORE_PIDS[$i]=$new_pid
             log "Restarted bore for port ${port} — new PID ${new_pid}"
 
+            # Wait a moment then re-parse new port
+            sleep 6
+            new_remote=""
+            if [ -f "$logfile" ]; then
+                new_remote=$(grep -oi "listening at [^:]*:\([0-9]*\)" "$logfile" 2>/dev/null \
+                    | grep -o '[0-9]*$' | head -1)
+                [ -z "$new_remote" ] && new_remote=$(grep -o '[0-9]\{4,5\}' "$logfile" 2>/dev/null \
+                    | grep -v "^${port}$" | head -1)
+            fi
+            ASSIGNED_REMOTE[$i]="${new_remote:-???}"
+
             ntfy_send "🔄 Ghost Tunnel Reconnected" \
-                "Port ${port} tunnel reconnected on ${HOSTNAME}\nServer: ${BORE_SERVER}" \
+                "Port ${port} reconnected on ${HOSTNAME}\nNew remote: ${BORE_SERVER}:${new_remote:-???}\nServer: ${BORE_SERVER}" \
                 "default" "arrows_counterclockwise" || true
+
+            ok "Tunnel for port ${port} restarted → ${BORE_SERVER}:${new_remote:-???}"
         fi
     done
     sleep 10
