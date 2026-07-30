@@ -1,195 +1,269 @@
-# 🚇 Ghost Tunnel
+# 🖥️ Ghost Tunnel
 
-**Production-ready free VPS on Railway** — Ubuntu 24.04 + SSH via bore.pub + ntfy notifications.
+**Free VPS di Railway** — Ubuntu 24.04 + SSH via bore.pub + notifikasi ntfy ke HP.
 
-Deploy container ini ke Railway gratis. Setiap kali aktif, kamu dapat notifikasi ke HP dengan port SSH terbaru lewat [ntfy.sh](https://ntfy.sh).
+Deploy container ini ke Railway (akun siapapun). Setiap kali aktif atau reconnect, kamu dapat notifikasi ke HP dengan port SSH terbaru.
 
 ---
 
 ## ✨ Fitur
 
-- 🐧 Ubuntu 24.04 LTS dengan tools lengkap (Python3, Node.js, Go, Git, Tmux, Screen, Vim, dll)
-- 🔐 SSH root login via bore.pub tunnel (port otomatis, berubah tiap restart)
-- 📲 Notifikasi ntfy otomatis saat tunnel aktif / reconnect / crash
-- 🔄 Supervisor auto-restart semua service
-- 🩺 Health check endpoint (`/health`)
+- 🐧 Ubuntu 24.04 LTS — Python3, Node.js, Go, Git, Tmux, Screen, Vim, dan lainnya
+- 🔐 SSH root login via bore.pub tunnel (port otomatis, bisa berubah tiap restart)
+- 📲 Notifikasi ntfy otomatis saat tunnel aktif / reconnect / down
+- 🔄 Supervisor manage semua service — auto-restart kalau crash
+- 🩺 Health check endpoint (`/health`) untuk Railway
 - ⚡ Multi-port bore tunnel support
 
 ---
 
-## 🚀 Deploy ke Railway
+## 🚀 Setup dari Nol (akun Railway baru)
 
-### 1. Fork / clone repo ini
+### Langkah 1 — Fork repo ini
 
-```bash
-git clone https://github.com/clickmamaheti-prog/ghost-tunnel.git
-cd ghost-tunnel
-```
+Klik tombol **Fork** di GitHub. Repo akan muncul di akun kamu sendiri, misalnya:
+`https://github.com/<username-kamu>/ghost-tunnel`
 
-### 2. Deploy ke Railway
+### Langkah 2 — Buat Railway project
 
-**Via Dashboard Railway:**
-1. Buka [railway.app](https://railway.app) → New Project → Deploy from GitHub repo
-2. Pilih repo ini
-3. Railway otomatis detect `railway.json` dan `Dockerfile`
+1. Buka [railway.app](https://railway.app) → login / daftar
+2. Klik **New Project** → **Deploy from GitHub repo**
+3. Authorize Railway ke GitHub, pilih repo fork kamu
+4. Railway otomatis detect `Dockerfile` dan `railway.json`, lalu mulai build
 
-**Via GHCR (Docker image siap pakai):**
-1. New Project → Empty Project → Add Service → Docker Image
-2. Masukkan: `ghcr.io/clickmamaheti-prog/ghost-tunnel:latest`
+> **Alternatif — pakai Docker image langsung (tanpa fork):**
+> New Project → Empty Project → Add Service → Docker Image
+> Masukkan: `ghcr.io/clickmamaheti-prog/ghost-tunnel:latest`
+> *(Pilihan ini tidak dapat notifikasi otomatis dari GitHub Actions)*
 
-### 3. Set Environment Variables
+### Langkah 3 — Set Environment Variables di Railway
 
-Di Railway → Service → Variables, set:
+Buka Railway → project kamu → service → tab **Variables**, lalu tambahkan:
 
-| Variable | Wajib | Default | Keterangan |
-|----------|-------|---------|------------|
-| `ROOT_PASS` | ✅ | `ChangeMe123!` | Password SSH root — **WAJIB DIGANTI** |
-| `NTFY_TOPIC` | ✅ | `ghost-mail` | Topic ntfy.sh untuk notifikasi |
-| `PORTS` | ✅ | `22` | Port yang di-tunnel. Multi: `22,80,3000` |
-| `BORE_SERVER` | ❌ | `bore.pub` | Bore server (gunakan bore.pub default) |
+| Variable | Wajib | Contoh nilai | Keterangan |
+|----------|:-----:|-------------|------------|
+| `ROOT_PASS` | ✅ | `RahasiaKuat99!` | Password SSH root — **wajib diganti** |
+| `NTFY_TOPIC` | ✅ | `nama-topic-unik-kamu` | Topic ntfy.sh untuk notifikasi |
+| `PORTS` | ✅ | `22` | Port yang di-tunnel. Multi: `22,3000,8080` |
+| `BORE_SERVER` | ❌ | `bore.pub` | Bore server (default sudah OK) |
 | `TZ` | ❌ | `Asia/Jakarta` | Timezone container |
-| `LOG_LEVEL` | ❌ | `INFO` | Level log: `DEBUG`, `INFO`, `WARN`, `ERROR` |
-| `WATCH_INTERVAL` | ❌ | `60` | Interval watchdog dalam detik |
+| `LOG_LEVEL` | ❌ | `INFO` | `DEBUG` / `INFO` / `WARN` / `ERROR` |
+| `WATCH_INTERVAL` | ❌ | `60` | Interval watchdog (detik) |
 
-### 4. Subscribe ntfy di HP
+Setelah simpan variables, Railway akan redeploy otomatis.
 
-1. Install app **ntfy** di HP (Android/iOS)
-2. Subscribe ke topic yang kamu set di `NTFY_TOPIC`
-3. URL: `https://ntfy.sh/<NTFY_TOPIC>`
+### Langkah 4 — Install ntfy di HP
 
-Setiap kali container restart, kamu dapat notif berisi port SSH terbaru.
+1. Install app **ntfy** — [Android](https://play.google.com/store/apps/details?id=io.heckel.ntfy) / [iOS](https://apps.apple.com/app/ntfy/id1625396347)
+2. Buka app → **+** → masukkan topic yang kamu set di `NTFY_TOPIC`
+3. Atau subscribe lewat browser: `https://ntfy.sh/<NTFY_TOPIC>`
+
+Setiap Railway restart atau bore reconnect, notifikasi masuk otomatis.
 
 ---
 
 ## 📲 Format Notifikasi
 
-### Saat Tunnel Aktif
-```
-🚇 Ghost Tunnel UP
-Ghost Tunnel active on ghost-tunnel
+### Tunnel aktif / reconnect
 
-Tunnels:
-  SSH / local :22 → bore.pub:XXXXX
+```
+Title: 🖥️ c2026 Gost tunnel linux
 
-Server: bore.pub
-Ports: 22
+🖥️ c2026 Gost tunnel linux
+
+━━━━━━━━━━━━━━━━━━━━━━
+🟢 VPS Status : ONLINE
+⏱️ Uptime     : up 2 days, 4 hours
+
+🌐 Host       : bore.pub
+🔐 SSH        : ssh root@bore.pub -p 52341
+👤 User       : root
+🔑 Password   : RahasiaKuat99!
+
+━━━━━━━━━━━━━━━━━━━━━━
 ```
 
-### Saat Reconnect (bore terputus)
+### Reconnect setelah terputus
+
 ```
-🔄 Ghost Tunnel Reconnected
-Port 22 reconnected on ghost-tunnel
-New remote: bore.pub:YYYYY
+🔄 VPS Status : RECONNECTED  (port baru tercantum)
 ```
 
-### Watchdog Alert
+### Watchdog alert (sshd/bore down)
+
 ```
-⚠️ Ghost Tunnel: sshd down
-sshd not found. Supervisor will restart.
+⚠️ VPS Status : sshd DOWN  (Supervisor akan restart)
+⚠️ VPS Status : TUNNEL DOWN
 ```
 
 ---
 
-## 🔐 SSH Login
+## 🔐 Cara SSH
 
-Port bore berubah setiap Railway restart — selalu cek ntfy untuk port terbaru.
+Port berubah tiap Railway restart — selalu cek ntfy untuk port terbaru.
 
 ```bash
 ssh root@bore.pub -p <PORT_DARI_NTFY>
 ```
 
-### Tips SSH
-```bash
-# Tambah ke ~/.ssh/config untuk mudah akses
+### Shortcut SSH (opsional)
+
+Tambah ke `~/.ssh/config`:
+
+```
 Host ghost
     HostName bore.pub
-    Port <PORT_DARI_NTFY>
+    Port 52341
     User root
 ```
+
+Lalu cukup ketik `ssh ghost` (update `Port` setiap dapat notif port baru).
+
+---
+
+## ⚙️ Setup GitHub Actions (opsional — untuk auto-deploy + notifikasi deploy)
+
+Kalau kamu fork repo ini dan mau GitHub Actions jalan otomatis (build Docker image + notif ntfy setelah deploy):
+
+### 1. Dapat Railway tokens
+
+Buka Railway → **Account Settings** → **Tokens** → buat token baru.
+
+Lalu cari ID-ID berikut:
+- **Project ID**: Railway → project kamu → Settings → lihat URL atau field Project ID
+- **Service ID**: Railway → project → service → Settings → Service ID
+- **Environment ID**: Railway → project → Environments → klik environment → lihat URL
+
+### 2. Set GitHub Secrets di repo fork
+
+Buka GitHub repo fork kamu → **Settings** → **Secrets and variables** → **Actions** → **New repository secret**:
+
+| Secret | Nilai |
+|--------|-------|
+| `RAILWAY_TOKEN` | Token Railway yang kamu buat |
+| `RAILWAY_PROJECT_ID` | Project ID dari Railway |
+| `RAILWAY_SERVICE_ID` | Service ID dari Railway |
+| `RAILWAY_ENVIRONMENT_ID` | Environment ID dari Railway |
+| `NTFY_TOPIC` | Topic ntfy yang sama dengan env Railway |
+| `ROOT_PASS` | Password SSH yang sama dengan env Railway |
+
+### 3. Aktifkan GitHub Actions
+
+Push apapun ke branch `main`, atau buka tab **Actions** → klik workflow → **Run workflow**.
+
+GitHub Actions akan:
+1. Build Docker image baru dari Dockerfile
+2. Push ke GHCR (`ghcr.io/<username>/ghost-tunnel:latest`)
+3. Trigger Railway redeploy
+4. Kirim notifikasi ntfy setelah deploy berhasil
+
+> **Tanpa GitHub Secrets:** Railway tetap jalan normal, hanya saja tidak ada notifikasi dari GitHub Actions. Notifikasi dari dalam container (tunnel.sh) tetap berfungsi.
 
 ---
 
 ## 🔧 Multi-Port Tunnel
 
-Set `PORTS=22,80,3000` untuk expose beberapa port sekaligus:
+Set `PORTS` dengan beberapa port dipisah koma:
 
 ```
-PORTS=22,80,3000,8080
+PORTS=22,3000,8080
 ```
 
-Notifikasi akan berisi semua port yang aktif:
-```
-Tunnels:
-  SSH / local :22  → bore.pub:AAAA
-  local :80        → bore.pub:BBBB
-  local :3000      → bore.pub:CCCC
-```
+Semua port akan di-tunnel. Port pertama (22) = port SSH.
 
 ---
 
-## 🛠️ Struktur Repo
+## 🏗️ Struktur Repo
 
 ```
 ghost-tunnel/
-├── Dockerfile                    # Ubuntu 24.04 + bore + SSH + Supervisor
-├── railway.json                  # Railway deploy config
-├── .env.example                  # Contoh env vars
+├── Dockerfile                      # Ubuntu 24.04 + bore + SSH + Supervisor
+├── railway.json                    # Railway deploy config
+├── .env.example                    # Contoh semua env variables
 ├── config/
-│   ├── supervisord.conf          # Supervisor main config
+│   ├── supervisord.conf            # Supervisor main config (PID 1)
 │   ├── conf.d/
-│   │   ├── sshd.conf             # SSH service
-│   │   ├── tunnel.conf           # Bore tunnel service
-│   │   ├── health.conf           # Health check service
-│   │   ├── cron.conf             # Cron service
-│   │   └── startup.conf          # Startup script (oneshot)
-│   ├── sshd_banner.txt           # SSH login banner
-│   └── logrotate/ghost-tunnel    # Log rotation config
+│   │   ├── startup.conf            # Jalankan startup.sh sekali saat boot
+│   │   ├── sshd.conf               # SSH daemon
+│   │   ├── tunnel.conf             # Bore tunnel manager
+│   │   ├── health.conf             # HTTP health check server
+│   │   └── cron.conf               # Cron daemon
+│   ├── sshd_banner.txt             # Banner saat SSH login
+│   └── logrotate/ghost-tunnel      # Konfigurasi log rotation
 └── scripts/
-    ├── startup.sh                # Init: set root pass, SSH port, etc.
-    ├── tunnel.sh                 # Bore tunnel manager + ntfy notifications
-    ├── watchdog.sh               # Optional watchdog (checks sshd + bore)
-    ├── notify.sh                 # ntfy helper script
-    └── health.py                 # HTTP health endpoint (:8080)
+    ├── startup.sh                  # Init: set password, SSH port, buat env file
+    ├── tunnel.sh                   # Bore tunnel manager + ntfy notification
+    ├── watchdog.sh                 # Opsional: monitor tambahan + alert ntfy
+    ├── health.py                   # HTTP server /health dan /status
+    └── notify.sh                   # Helper: kirim notifikasi ntfy manual
 ```
 
 ---
 
-## 🐛 Troubleshooting
+## 🩺 Health Check
 
-### ntfy tidak menerima notifikasi
+Railway memakai endpoint `/health` untuk mengecek container sehat:
 
-1. **Cek topic sudah benar** — pastikan `NTFY_TOPIC` di Railway sama dengan yang di-subscribe di app ntfy
-2. **Railway IP rate-limit** — ntfy.sh mungkin rate-limit IP Railway. Script sudah pakai `--retry 5` untuk handle ini. Cek log Railway untuk status pengiriman.
-3. **Test manual dari terminal:**
+```bash
+curl https://<railway-domain>/health
+```
+
+Response:
+```json
+{
+  "status": "ok",
+  "uptime_seconds": 3600,
+  "services": {
+    "sshd": "RUNNING",
+    "tunnel": "RUNNING"
+  }
+}
+```
+
+---
+
+## 🔍 Troubleshooting
+
+### Tidak ada notifikasi ntfy
+
+1. Pastikan `NTFY_TOPIC` di Railway Variables sama persis dengan yang di-subscribe di app ntfy
+2. Test manual via SSH:
    ```bash
-   curl -d "Test notif" "https://ntfy.sh/<NTFY_TOPIC>"
+   curl -d "Test" "https://ntfy.sh/<NTFY_TOPIC>"
    ```
-4. **Log di Railway** — cari baris `[tunnel] ntfy sent` atau `[tunnel] ntfy failed`
+3. Cek Railway logs — cari baris `[tunnel] ntfy sent` atau `[tunnel] ntfy failed`
 
-### SSH "Connection refused" atau "Connection closed"
+### SSH "Connection refused"
 
-1. **Cek port terbaru** — port berubah setiap restart, cek ntfy atau Railway logs
-2. **Cari port di Railway logs:**
+1. Port bore **berubah setiap restart** — cek ntfy atau Railway logs untuk port terbaru
+2. Cari di Railway logs:
    ```
    Tunnel ready: local :22 → bore.pub:XXXXX
    ```
-3. **Pastikan `ROOT_PASS` sudah di-set** di Railway variables
 
-### Container restart terus-menerus
+### Container restart terus
 
-1. Cek Railway logs untuk error di startup
-2. Pastikan semua env vars wajib sudah di-set (`ROOT_PASS`, `NTFY_TOPIC`, `PORTS`)
-3. Health check timeout: container butuh ~30 detik untuk fully start
+1. Cek Railway logs untuk error saat startup
+2. Pastikan `ROOT_PASS`, `NTFY_TOPIC`, dan `PORTS` sudah di-set di Variables
+3. Health check butuh ~30 detik saat container baru start — tunggu sebentar
+
+### GitHub Actions gagal di step "Trigger Railway"
+
+Pastikan semua 4 secrets Railway sudah di-set dengan benar (`RAILWAY_TOKEN`, `RAILWAY_PROJECT_ID`, `RAILWAY_SERVICE_ID`, `RAILWAY_ENVIRONMENT_ID`). Kalau hanya satu yang salah, step akan dilanjutkan (`continue-on-error: true`) dan tidak crash.
 
 ---
 
 ## 📋 Changelog
 
-### v3.2 — ntfy Fix untuk Railway Container
+### v3.3 — Format Notifikasi Baru
+- **Update:** Format notifikasi ntfy diubah ke status card terstruktur dengan separator dan emoji
+- **Fix:** GitHub Actions `deploy-and-notify` job tidak lagi crash jika Railway API gagal (`continue-on-error: true`)
+- **Fix:** Notifikasi GitHub Actions ikut format baru
+
+### v3.2 — Fix ntfy di Railway Container
 - **Fix:** `ntfy_send` di semua script kini pakai `--retry 5 --retry-delay 3 --retry-all-errors`
-- **Fix:** Hapus pendekatan tmpfile, ganti ke direct `-d body` (lebih reliable di container)
+- **Fix:** Ganti tmpfile ke direct `-d body` (lebih reliable di container)
 - **Fix:** Tambah header `Content-Type: text/plain` yang konsisten
-- **Fix:** watchdog.sh ntfy_send diupdate dengan retry yang sama
 
 ### v3.1 — Real Port Parsing
 - Fix: Capture bore stdout ke log file untuk parse port asli
@@ -199,7 +273,6 @@ ghost-tunnel/
 - Supervisor sebagai PID 1 (bukan bash entrypoint)
 - Multi-port bore tunnel support
 - Health check endpoint
-- Watchdog optional
 
 ---
 
