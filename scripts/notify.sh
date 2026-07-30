@@ -1,7 +1,10 @@
 #!/bin/bash
 # ══════════════════════════════════════════════════════════════════════════════
-#  Ghost Tunnel — ntfy Notification Helper v3.0
+#  Ghost Tunnel — ntfy Notification Helper v3.2
 #  Usage: notify.sh "Title" "Body" [priority] [tags]
+#
+#  v3.2 fix: --retry 5 --retry-delay 3 --retry-all-errors + direct -d body
+#            (no tmpfile) to fix Railway container notification failures.
 # ══════════════════════════════════════════════════════════════════════════════
 set -e
 
@@ -16,21 +19,20 @@ if [ -z "$NTFY_TOPIC" ]; then
     exit 1
 fi
 
-tmpfile=$(mktemp /tmp/ntfy_XXXXXX.txt)
-printf '%s' "$BODY" > "$tmpfile"
-
 code=$(curl -sS \
-    --connect-timeout 20 \
+    --retry 5 \
+    --retry-delay 3 \
+    --retry-all-errors \
+    --connect-timeout 15 \
     --max-time 60 \
+    -H "Content-Type: text/plain" \
     -H "Title: ${TITLE}" \
     -H "Priority: ${PRIORITY}" \
     -H "Tags: ${TAGS}" \
-    --data-binary "@${tmpfile}" \
+    -d "${BODY}" \
     -o /dev/null \
     -w "%{http_code}" \
     "https://ntfy.sh/${NTFY_TOPIC}" 2>/dev/null)
-
-rm -f "$tmpfile"
 
 if [ "$code" = "200" ]; then
     echo "[notify] Sent → ntfy.sh/${NTFY_TOPIC} (HTTP ${code})"
