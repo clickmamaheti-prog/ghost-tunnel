@@ -1,0 +1,25 @@
+# ── Ghost Tunnel log rotation ──────────────────────────────────────────────────
+# Rotates all Supervisor-managed logs to prevent disk saturation.
+# Runs daily; keeps 14 days of compressed logs.
+
+/var/log/supervisor/*.log {
+    daily
+    missingok
+    rotate 14
+    compress
+    delaycompress
+    notifempty
+    copytruncate
+    su root root
+}
+
+/var/log/ghost-tunnel/*.log {
+    daily
+    missingok
+    rotate 14
+    compress
+    delaycompress
+    notifempty
+    copytruncate
+    su root root
+}

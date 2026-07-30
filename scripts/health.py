@@ -1,8 +1,13 @@
 #!/usr/bin/env python3
 """
-Ghost Tunnel — HTTP Health Check Server
-Responds to GET / and GET /health with status 200
+Ghost Tunnel — Health Check HTTP Server v3.0
+Listens on $PORT (default 8080).
+Endpoints:
+  GET /health  → JSON status (200 OK)
+  GET /status  → detailed JSON with tunnel and process info
+  GET /         → plain text alive check
 """
+
 import http.server
 import json
 import os
@@ -13,60 +18,88 @@ PORT = int(os.environ.get("PORT", 8080))
 START_TIME = time.time()
 
 
+def _count_procs(name: str) -> int:
+    try:
+        result = subprocess.run(
+            ["pgrep", "-c", name],
+            capture_output=True,
+            text=True,
+            timeout=5,
+        )
+        return int(result.stdout.strip()) if result.returncode == 0 else 0
+    except Exception:
+        return 0
+
+
+def _supervisor_status() -> dict:
+    try:
+        result = subprocess.run(
+            ["supervisorctl", "-c", "/etc/supervisor/supervisord.conf", "status"],
+            capture_output=True,
+            text=True,
+            timeout=10,
+        )
+        services = {}
+        for line in result.stdout.splitlines():
+            parts = line.split()
+            if len(parts) >= 2:
+                services[parts[0]] = parts[1]
+        return services
+    except Exception:
+        return {}
+
+
 class HealthHandler(http.server.BaseHTTPRequestHandler):
     def do_GET(self):
-        if self.path in ("/", "/health", "/healthz"):
+        if self.path in ("/health", "/health/"):
             self._serve_health()
-        elif self.path == "/status":
+        elif self.path in ("/status", "/status/"):
             self._serve_status()
+        elif self.path == "/":
+            self._serve_root()
         else:
             self._serve_404()
 
+    def _serve_root(self):
+        body = b"Ghost Tunnel OK\n"
+        self._respond(200, "text/plain", body)
+
     def _serve_health(self):
-        body = b"OK"
-        self.send_response(200)
-        self.send_header("Content-Type", "text/plain")
-        self.send_header("Content-Length", str(len(body)))
-        self.end_headers()
-        self.wfile.write(body)
-
-    def _serve_status(self):
-        uptime = int(time.time() - START_TIME)
-        # Count active bore tunnels
-        try:
-            result = subprocess.run(
-                ["pgrep", "-c", "bore"], capture_output=True, text=True
-            )
-            bore_count = int(result.stdout.strip()) if result.returncode == 0 else 0
-        except Exception:
-            bore_count = 0
-
         payload = {
             "status": "ok",
             "service": "Ghost Tunnel",
-            "version": "1.0.0",
+            "version": "3.0.0",
+            "uptime_seconds": int(time.time() - START_TIME),
+        }
+        self._respond(200, "application/json", json.dumps(payload).encode())
+
+    def _serve_status(self):
+        uptime = int(time.time() - START_TIME)
+        payload = {
+            "status": "ok",
+            "service": "Ghost Tunnel",
+            "version": "3.0.0",
             "uptime_seconds": uptime,
-            "bore_tunnels": bore_count,
+            "bore_tunnels": _count_procs("bore"),
+            "sshd_procs": _count_procs("sshd"),
             "ports": os.environ.get("PORTS", "22"),
             "bore_server": os.environ.get("BORE_SERVER", "bore.pub"),
+            "supervisor": _supervisor_status(),
         }
-        body = json.dumps(payload, indent=2).encode()
-        self.send_response(200)
-        self.send_header("Content-Type", "application/json")
-        self.send_header("Content-Length", str(len(body)))
-        self.end_headers()
-        self.wfile.write(body)
+        self._respond(200, "application/json", json.dumps(payload, indent=2).encode())
 
     def _serve_404(self):
-        body = b"Not Found"
-        self.send_response(404)
-        self.send_header("Content-Type", "text/plain")
+        self._respond(404, "text/plain", b"Not Found\n")
+
+    def _respond(self, code: int, content_type: str, body: bytes):
+        self.send_response(code)
+        self.send_header("Content-Type", content_type)
         self.send_header("Content-Length", str(len(body)))
         self.end_headers()
         self.wfile.write(body)
 
     def log_message(self, fmt, *args):
-        # Suppress access logs (reduce noise)
+        # Suppress noisy access logs; health checks fire every 30s
         pass
 
 

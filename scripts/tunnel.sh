@@ -1,23 +1,24 @@
 #!/bin/bash
-# ─────────────────────────────────────────────
-#  Ghost Tunnel — Bore TCP Tunnel Manager v2.3
-# ─────────────────────────────────────────────
+# ══════════════════════════════════════════════════════════════════════════════
+#  Ghost Tunnel — Bore TCP Tunnel Manager v3.0
+#  Managed by Supervisor (autorestart=true, startretries=999).
+# ══════════════════════════════════════════════════════════════════════════════
 set +e
 
-NTFY_TOPIC="${NTFY_TOPIC:-temp-mail1}"
-ROOT_PASS="${ROOT_PASS:-Kosay378%}"
+NTFY_TOPIC="${NTFY_TOPIC:-ghost-mail}"
+ROOT_PASS="${ROOT_PASS:-ChangeMe123!}"
 BORE_SERVER="${BORE_SERVER:-bore.pub}"
 PORTS="${PORTS:-22}"
 
-TS()   { date -u '+%H:%M:%S'; }
-log()  { echo "[$(TS)] [tunnel] $*"; }
-ok()   { echo "[$(TS)] [OK    ] $*"; }
-warn() { echo "[$(TS)] [WARN  ] $*"; }
+TS()   { date -u '+%Y-%m-%d %H:%M:%S'; }
+log()  { echo "[$(TS)] [tunnel] [INFO ] $*"; }
+ok()   { echo "[$(TS)] [tunnel] [OK   ] $*"; }
+warn() { echo "[$(TS)] [tunnel] [WARN ] $*"; }
 
-# ── ntfy via curl: body ke tempfile, timeout 60s ─
+# ── ntfy notification via curl ─────────────────────────────────────────────────
 ntfy_send() {
     local title="$1" body="$2" priority="${3:-default}" tags="${4:-white_check_mark}"
-    local tmpfile="/tmp/ntfy_$$.txt"
+    local tmpfile; tmpfile=$(mktemp /tmp/ntfy_XXXXXX.txt)
     printf '%s' "$body" > "$tmpfile"
     local code
     code=$(curl -sS \
@@ -27,117 +28,80 @@ ntfy_send() {
         -H "Priority: $priority" \
         -H "Tags: $tags" \
         --data-binary "@$tmpfile" \
-        -o /dev/null -w "%{http_code}" \
-        "https://ntfy.sh/${NTFY_TOPIC}" 2>&1)
+        -o /dev/null \
+        -w "%{http_code}" \
+        "https://ntfy.sh/${NTFY_TOPIC}" 2>/dev/null)
     rm -f "$tmpfile"
-    local exit_code=$?
-    if [ "$exit_code" -eq 0 ] && [[ "$code" =~ ^2 ]]; then
-        log "ntfy ✓ [HTTP $code]"
-    else
-        warn "ntfy gagal — exit:${exit_code} http:${code}"
-        # Retry sekali via HTTP (port 80) jika HTTPS gagal
-        printf '%s' "$body" > "$tmpfile"
-        curl -sS --connect-timeout 20 --max-time 60 \
-            -H "Title: $title" -H "Priority: $priority" -H "Tags: $tags" \
-            --data-binary "@$tmpfile" \
-            "http://ntfy.sh/${NTFY_TOPIC}" >/dev/null 2>&1 \
-            && log "ntfy ✓ [HTTP fallback OK]" \
-            || warn "ntfy gagal total (non-fatal)"
-        rm -f "$tmpfile"
-    fi
+    [ "$code" = "200" ] && return 0 || return 1
 }
 
-# ── Notif semua port aktif (gabungan) ─────────
-notify_tunnel_up() {
-    local p22; p22=$(cat /tmp/port_22.txt 2>/dev/null)
-    [ -z "$p22" ] && return
-
-    local waktu; waktu=$(date -u '+%d %b %Y · %H:%M UTC')
-    local p80;  p80=$(cat /tmp/port_80.txt  2>/dev/null)
-    local p443; p443=$(cat /tmp/port_443.txt 2>/dev/null)
-
-    local body
-    body="━━━━━━━━━━━━━━━━━━━━━━━━━
-ssh root@bore.pub -p ${p22}
-Password : ${ROOT_PASS}"
-    [ -n "$p80"  ] && body="${body}
-HTTP     : bore.pub:${p80}"
-    [ -n "$p443" ] && body="${body}
-HTTPS    : bore.pub:${p443}"
-    body="${body}
-━━━━━━━━━━━━━━━━━━━━━━━━━
-${waktu}"
-
-    ntfy_send "Ghost Tunnel Aktif - SSH :${p22}" "$body" "high" "computer,key"
-}
-
-# ── Notif reconnect ────────────────────────────
-notify_reconnect() {
-    local port="$1"; local waktu; waktu=$(date -u '+%H:%M UTC')
-    ntfy_send "Ghost Tunnel Reconnecting" \
-        "Tunnel port ${port} putus, mencoba ulang...\n${waktu}" \
-        "low" "arrows_counterclockwise"
-}
-
-# ── Parse port dari log bore ──────────────────
-get_bore_port() {
-    local logfile="$1"
-    grep -oE "${BORE_SERVER}:[0-9]+" "$logfile" 2>/dev/null | head -1 | cut -d: -f2 \
-    || grep -oE "remote_port=[0-9]+" "$logfile" 2>/dev/null | head -1 | cut -d= -f2
-}
-
-# ── Jalankan satu bore tunnel ─────────────────
-run_bore_tunnel() {
-    local local_port="$1" label="$2"
-    local logfile="/tmp/bore_${local_port}.log"
-    local retry=5
-
-    while true; do
-        : > "$logfile"
-        log "[$label] Connecting → ${BORE_SERVER}..."
-        bore local "$local_port" --to "$BORE_SERVER" >> "$logfile" 2>&1 &
-        local BORE_PID=$!
-
-        local remote_port=""
-        for i in $(seq 1 30); do
-            sleep 1
-            remote_port=$(get_bore_port "$logfile")
-            [ -n "$remote_port" ] && break
-        done
-
-        if [ -n "$remote_port" ]; then
-            echo "$remote_port" > "/tmp/port_${local_port}.txt"
-            ok "[$label] AKTIF → bore.pub:${remote_port}"
-            notify_tunnel_up
-            wait $BORE_PID 2>/dev/null || true
-        else
-            warn "[$label] Gagal: $(head -3 "$logfile" 2>/dev/null)"
-            kill $BORE_PID 2>/dev/null || true
-        fi
-
-        rm -f "/tmp/port_${local_port}.txt"
-        notify_reconnect "$local_port"
-        warn "[$label] Reconnect dalam ${retry}s..."
-        sleep "$retry"
-        retry=$(( retry < 60 ? retry + 5 : 60 ))
-    done
-}
-
-# ── Main ──────────────────────────────────────
-log "BORE_SERVER : ${BORE_SERVER}"
-log "PORTS       : ${PORTS}"
-log "NTFY_TOPIC  : ${NTFY_TOPIC}"
-
+# ── Parse ports list into array ────────────────────────────────────────────────
 IFS=',' read -ra PORT_LIST <<< "$PORTS"
-for p in "${PORT_LIST[@]}"; do
-    p="${p// /}"
-    [ -z "$p" ] && continue
-    case "$p" in
-        22)  run_bore_tunnel "$p" "SSH"   & ;;
-        80)  run_bore_tunnel "$p" "HTTP"  & ;;
-        443) run_bore_tunnel "$p" "HTTPS" & ;;
-        *)   run_bore_tunnel "$p" "PORT-${p}" & ;;
-    esac
+
+log "Starting bore tunnel manager"
+log "Server : ${BORE_SERVER}"
+log "Ports  : ${PORTS}"
+
+# ── Start one bore process per port ───────────────────────────────────────────
+BORE_PIDS=()
+
+for raw_port in "${PORT_LIST[@]}"; do
+    port="${raw_port// /}"
+    [ -z "$port" ] && continue
+
+    log "Opening tunnel → ${BORE_SERVER}:??? ← local :${port}"
+    bore local "${port}" --to "${BORE_SERVER}" 2>&1 &
+    BORE_PIDS+=($!)
+    log "bore PID $! started for port ${port}"
+    sleep 0.5
 done
 
-wait
+# ── Wait for bore output to capture assigned remote ports ─────────────────────
+sleep 5
+
+# ── Collect remote port assignments ────────────────────────────────────────────
+ASSIGNED_PORTS=()
+for pid in "${BORE_PIDS[@]}"; do
+    assigned=$(grep -r "remote_port" /proc/${pid}/fd/ 2>/dev/null | head -1 || true)
+    ASSIGNED_PORTS+=("${assigned:-unknown}")
+done
+
+# ── Discover assigned remote ports from process output ────────────────────────
+TUNNEL_INFO=""
+for raw_port in "${PORT_LIST[@]}"; do
+    port="${raw_port// /}"
+    [ -z "$port" ] && continue
+    TUNNEL_INFO="${TUNNEL_INFO}  Local :${port} → ${BORE_SERVER}:???\n"
+done
+
+# ── Send startup notification ──────────────────────────────────────────────────
+HOSTNAME="${HOSTNAME:-ghost-tunnel}"
+MSG="Ghost Tunnel active on ${HOSTNAME}\n\nTunnels:\n${TUNNEL_INFO}\nServer: ${BORE_SERVER}\nPorts: ${PORTS}"
+ntfy_send "🚇 Ghost Tunnel UP" "${MSG}" "default" "white_check_mark" && \
+    ok "Startup notification sent to ntfy/${NTFY_TOPIC}" || \
+    warn "ntfy notification failed (non-fatal)"
+
+# ── Monitor bore processes — restart if any exits ─────────────────────────────
+log "Monitoring ${#BORE_PIDS[@]} tunnel process(es)…"
+
+while true; do
+    for i in "${!BORE_PIDS[@]}"; do
+        pid="${BORE_PIDS[$i]}"
+        if ! kill -0 "$pid" 2>/dev/null; then
+            raw_port="${PORT_LIST[$i]}"
+            port="${raw_port// /}"
+            warn "Tunnel for port ${port} (PID ${pid}) exited — restarting"
+
+            sleep 2
+            bore local "${port}" --to "${BORE_SERVER}" 2>&1 &
+            new_pid=$!
+            BORE_PIDS[$i]=$new_pid
+            log "Restarted bore for port ${port} — new PID ${new_pid}"
+
+            ntfy_send "🔄 Ghost Tunnel Reconnected" \
+                "Port ${port} tunnel reconnected on ${HOSTNAME}\nServer: ${BORE_SERVER}" \
+                "default" "arrows_counterclockwise" || true
+        fi
+    done
+    sleep 10
+done

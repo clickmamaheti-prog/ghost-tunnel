@@ -1,33 +1,40 @@
 #!/bin/bash
-# ─────────────────────────────────────────────
-#  Ghost Tunnel — ntfy.sh Notification Helper
-# ─────────────────────────────────────────────
+# ══════════════════════════════════════════════════════════════════════════════
+#  Ghost Tunnel — ntfy Notification Helper v3.0
+#  Usage: notify.sh "Title" "Body" [priority] [tags]
+# ══════════════════════════════════════════════════════════════════════════════
+set -e
 
-NTFY_BASE="https://ntfy.sh"
+NTFY_TOPIC="${NTFY_TOPIC:-ghost-mail}"
+TITLE="${1:-Ghost Tunnel}"
+BODY="${2:-Notification}"
+PRIORITY="${3:-default}"
+TAGS="${4:-white_check_mark}"
 
-ntfy_send() {
-  local topic="${1:-temp-mail1}"
-  local title="${2:-Ghost Tunnel}"
-  local message="${3:-}"
-  local priority="${4:-default}"
-  local tags="${5:-ghost}"
+if [ -z "$NTFY_TOPIC" ]; then
+    echo "[notify] ERROR: NTFY_TOPIC is not set" >&2
+    exit 1
+fi
 
-  curl -s -X POST "${NTFY_BASE}/${topic}" \
-    -H "Title: ${title}" \
-    -H "Priority: ${priority}" \
-    -H "Tags: ${tags}" \
-    -d "${message}" \
-    > /dev/null 2>&1 && return 0 || return 1
-}
+tmpfile=$(mktemp /tmp/ntfy_XXXXXX.txt)
+printf '%s' "$BODY" > "$tmpfile"
 
-ntfy_info() {
-  ntfy_send "$NTFY_TOPIC" "$1" "$2" "default" "information"
-}
+code=$(curl -sS \
+    --connect-timeout 20 \
+    --max-time 60 \
+    -H "Title: ${TITLE}" \
+    -H "Priority: ${PRIORITY}" \
+    -H "Tags: ${TAGS}" \
+    --data-binary "@${tmpfile}" \
+    -o /dev/null \
+    -w "%{http_code}" \
+    "https://ntfy.sh/${NTFY_TOPIC}" 2>/dev/null)
 
-ntfy_success() {
-  ntfy_send "$NTFY_TOPIC" "$1" "$2" "high" "white_check_mark"
-}
+rm -f "$tmpfile"
 
-ntfy_error() {
-  ntfy_send "$NTFY_TOPIC" "$1" "$2" "urgent" "warning"
-}
+if [ "$code" = "200" ]; then
+    echo "[notify] Sent → ntfy.sh/${NTFY_TOPIC} (HTTP ${code})"
+else
+    echo "[notify] Failed → ntfy.sh/${NTFY_TOPIC} (HTTP ${code})" >&2
+    exit 1
+fi

@@ -1,10 +1,16 @@
+# Environment — never commit secrets
 .env
+.env.local
+.env.*.local
+
+# Runtime logs
 *.log
-*.err
+/var/
+
+# OS & editor
 .DS_Store
-__pycache__/
-*.pyc
+Thumbs.db
 .idea/
 .vscode/
-/tmp/
-node_modules/
+*.swp
+*~

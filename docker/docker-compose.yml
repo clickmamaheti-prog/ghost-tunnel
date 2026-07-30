@@ -1,31 +1,61 @@
 version: "3.9"
 
+# ══════════════════════════════════════════════════════════════════════════════
+#  Ghost Tunnel — Production docker-compose
+#  Usage:
+#    cp ../.env.example ../.env   # lalu edit ROOT_PASS & NTFY_TOPIC
+#    docker compose -f docker/docker-compose.yml up -d
+# ══════════════════════════════════════════════════════════════════════════════
+
 services:
   ghost-tunnel:
     image: ghost-tunnel:latest
     build:
       context: ..
       dockerfile: Dockerfile
+      args:
+        BORE_VERSION: "0.6.0"
+        TZ: "${TZ:-Asia/Jakarta}"
     container_name: ghost-tunnel
+    hostname: ghost-tunnel
     restart: unless-stopped
+
     environment:
-      - ROOT_PASS=${ROOT_PASS:-Kosay378%}
-      - NTFY_TOPIC=${NTFY_TOPIC:-temp-mail1}
+      - ROOT_PASS=${ROOT_PASS:-ChangeMe123!}
+      - NTFY_TOPIC=${NTFY_TOPIC:-ghost-mail}
       - PORTS=${PORTS:-22}
       - BORE_SERVER=${BORE_SERVER:-bore.pub}
       - PORT=${PORT:-8080}
       - LOG_LEVEL=${LOG_LEVEL:-INFO}
       - TZ=${TZ:-Asia/Jakarta}
+
     ports:
       - "${PORT:-8080}:${PORT:-8080}"
+
+    volumes:
+      # Persist Supervisor and service logs across container restarts
+      - ghost-logs:/var/log/supervisor
+      - ghost-tunnel-logs:/var/log/ghost-tunnel
+      # Persist SSH host keys so clients don't see key-changed warnings on restart
+      - ghost-ssh-keys:/etc/ssh
+
     healthcheck:
       test: ["CMD", "curl", "-sf", "http://localhost:${PORT:-8080}/health"]
       interval: 30s
       timeout: 10s
       retries: 3
-      start_period: 15s
+      start_period: 30s
+
     logging:
       driver: json-file
       options:
         max-size: "10m"
-        max-file: "3"
+        max-file: "5"
+
+volumes:
+  ghost-logs:
+    name: ghost-tunnel-supervisor-logs
+  ghost-tunnel-logs:
+    name: ghost-tunnel-service-logs
+  ghost-ssh-keys:
+    name: ghost-tunnel-ssh-keys
