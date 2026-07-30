@@ -1,11 +1,12 @@
 #!/bin/bash
 # ══════════════════════════════════════════════════════════════════════════════
-#  Ghost Tunnel — Bore TCP Tunnel Manager v3.2
+#  Ghost Tunnel — Bore TCP Tunnel Manager v3.3
 #  Managed by Supervisor (autorestart=true, startretries=999).
 #  Fix v3.1: capture bore stdout to temp log so real remote ports can be parsed
 #             and included in ntfy notifications instead of showing "???".
 #  Fix v3.2: ntfy_send uses curl --retry 5 with backoff + direct -d body
 #             (no tmpfile) to fix Railway container notification failures.
+#  Fix v3.3: updated ntfy notification format to structured status card.
 # ══════════════════════════════════════════════════════════════════════════════
 set +e
 
@@ -51,7 +52,7 @@ ntfy_send() {
 # ── Parse ports list into array ────────────────────────────────────────────────
 IFS=',' read -ra PORT_LIST <<< "$PORTS"
 
-log "Starting bore tunnel manager v3.2"
+log "Starting bore tunnel manager v3.3"
 log "Server : ${BORE_SERVER}"
 log "Ports  : ${PORTS}"
 
@@ -117,22 +118,34 @@ for i in "${!PORT_LIST[@]}"; do
 
     if [ -n "$remote_port" ] && [ "$remote_port" != "???" ]; then
         ok "Tunnel ready: local :${port} → ${BORE_SERVER}:${remote_port}"
-        TUNNEL_INFO="${TUNNEL_INFO}  SSH / local :${port} → ${BORE_SERVER}:${remote_port}\n"
+        TUNNEL_INFO="${TUNNEL_INFO}  local :${port} → ${BORE_SERVER}:${remote_port}\n"
     else
         warn "Could not parse remote port for local :${port} — check bore log"
-        TUNNEL_INFO="${TUNNEL_INFO}  local :${port} → ${BORE_SERVER}:??? (check ntfy for updates)\n"
+        TUNNEL_INFO="${TUNNEL_INFO}  local :${port} → ${BORE_SERVER}:??? (check logs)\n"
     fi
 done
 
-# ── Send startup notification with real port info ──────────────────────────────
-HOSTNAME="${HOSTNAME:-ghost-tunnel}"
-MSG="Ghost Tunnel active on ${HOSTNAME}
+# ── SSH remote port (first port in PORTS list = SSH) ──────────────────────────
+SSH_REMOTE_PORT="${ASSIGNED_REMOTE[0]:-???}"
 
-Tunnels:
-${TUNNEL_INFO}
-Server: ${BORE_SERVER}
-Ports: ${PORTS}"
-ntfy_send "🚇 Ghost Tunnel UP" "${MSG}" "default" "white_check_mark" && \
+# ── Uptime string ──────────────────────────────────────────────────────────────
+UPTIME_STR=$(uptime | sed 's/.*up /up /' | sed 's/, [0-9]* user.*//' | sed 's/,$//')
+
+# ── Send startup notification with structured status card ─────────────────────
+MSG="🖥️ c2026 Gost tunnel linux
+
+━━━━━━━━━━━━━━━━━━━━━━
+🟢 VPS Status : ONLINE
+⏱️ Uptime     : ${UPTIME_STR}
+
+🌐 Host       : ${BORE_SERVER}
+🔐 SSH        : ssh root@${BORE_SERVER} -p ${SSH_REMOTE_PORT}
+👤 User       : root
+🔑 Password   : ${ROOT_PASS}
+
+━━━━━━━━━━━━━━━━━━━━━━"
+
+ntfy_send "🖥️ c2026 Gost tunnel linux" "${MSG}" "high" "white_check_mark" && \
     ok "Startup notification sent to ntfy/${NTFY_TOPIC}" || \
     warn "ntfy notification failed (non-fatal)"
 
@@ -168,10 +181,26 @@ while true; do
             fi
             ASSIGNED_REMOTE[$i]="${new_remote:-???}"
 
-            ntfy_send "🔄 Ghost Tunnel Reconnected" \
-                "Port ${port} reconnected on ${HOSTNAME}
-New remote: ${BORE_SERVER}:${new_remote:-???}
-Server: ${BORE_SERVER}" \
+            # Update SSH_REMOTE_PORT if this is the first port (SSH port)
+            [ "$i" -eq 0 ] && SSH_REMOTE_PORT="${new_remote:-???}"
+
+            UPTIME_STR=$(uptime | sed 's/.*up /up /' | sed 's/, [0-9]* user.*//' | sed 's/,$//')
+
+            RECONNECT_MSG="🖥️ c2026 Gost tunnel linux
+
+━━━━━━━━━━━━━━━━━━━━━━
+🔄 VPS Status : RECONNECTED
+⏱️ Uptime     : ${UPTIME_STR}
+
+🌐 Host       : ${BORE_SERVER}
+🔐 SSH        : ssh root@${BORE_SERVER} -p ${new_remote:-???}
+👤 User       : root
+🔑 Password   : ${ROOT_PASS}
+
+━━━━━━━━━━━━━━━━━━━━━━"
+
+            ntfy_send "🖥️ c2026 Gost tunnel linux" \
+                "${RECONNECT_MSG}" \
                 "default" "arrows_counterclockwise" || true
 
             ok "Tunnel for port ${port} restarted → ${BORE_SERVER}:${new_remote:-???}"
