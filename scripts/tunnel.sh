@@ -1,9 +1,11 @@
 #!/bin/bash
 # ══════════════════════════════════════════════════════════════════════════════
-#  Ghost Tunnel — Bore TCP Tunnel Manager v3.1
+#  Ghost Tunnel — Bore TCP Tunnel Manager v3.2
 #  Managed by Supervisor (autorestart=true, startretries=999).
 #  Fix v3.1: capture bore stdout to temp log so real remote ports can be parsed
 #             and included in ntfy notifications instead of showing "???".
+#  Fix v3.2: ntfy_send uses curl --retry 5 with backoff + direct -d body
+#             (no tmpfile) to fix Railway container notification failures.
 # ══════════════════════════════════════════════════════════════════════════════
 set +e
 
@@ -17,30 +19,39 @@ log()  { echo "[$(TS)] [tunnel] [INFO ] $*"; }
 ok()   { echo "[$(TS)] [tunnel] [OK   ] $*"; }
 warn() { echo "[$(TS)] [tunnel] [WARN ] $*"; }
 
-# ── ntfy notification via curl ─────────────────────────────────────────────────
+# ── ntfy notification via curl (v3.2: retry + direct body, no tmpfile) ─────────
+# Retries up to 5 times with 3-second delay between attempts.
+# Uses direct -d string to avoid tmpfile permission/mktemp issues in containers.
 ntfy_send() {
     local title="$1" body="$2" priority="${3:-default}" tags="${4:-white_check_mark}"
-    local tmpfile; tmpfile=$(mktemp /tmp/ntfy_XXXXXX.txt)
-    printf '%s' "$body" > "$tmpfile"
     local code
     code=$(curl -sS \
-        --connect-timeout 20 \
+        --retry 5 \
+        --retry-delay 3 \
+        --retry-all-errors \
+        --connect-timeout 15 \
         --max-time 60 \
-        -H "Title: $title" \
-        -H "Priority: $priority" \
-        -H "Tags: $tags" \
-        --data-binary "@$tmpfile" \
+        -H "Content-Type: text/plain" \
+        -H "Title: ${title}" \
+        -H "Priority: ${priority}" \
+        -H "Tags: ${tags}" \
+        -d "${body}" \
         -o /dev/null \
         -w "%{http_code}" \
         "https://ntfy.sh/${NTFY_TOPIC}" 2>/dev/null)
-    rm -f "$tmpfile"
-    [ "$code" = "200" ] && return 0 || return 1
+    if [ "$code" = "200" ]; then
+        ok "ntfy sent → ntfy.sh/${NTFY_TOPIC} (HTTP ${code})"
+        return 0
+    else
+        warn "ntfy failed → ntfy.sh/${NTFY_TOPIC} (HTTP ${code})"
+        return 1
+    fi
 }
 
 # ── Parse ports list into array ────────────────────────────────────────────────
 IFS=',' read -ra PORT_LIST <<< "$PORTS"
 
-log "Starting bore tunnel manager v3.1"
+log "Starting bore tunnel manager v3.2"
 log "Server : ${BORE_SERVER}"
 log "Ports  : ${PORTS}"
 
@@ -115,7 +126,12 @@ done
 
 # ── Send startup notification with real port info ──────────────────────────────
 HOSTNAME="${HOSTNAME:-ghost-tunnel}"
-MSG="Ghost Tunnel active on ${HOSTNAME}\n\nTunnels:\n${TUNNEL_INFO}\nServer: ${BORE_SERVER}\nPorts: ${PORTS}"
+MSG="Ghost Tunnel active on ${HOSTNAME}
+
+Tunnels:
+${TUNNEL_INFO}
+Server: ${BORE_SERVER}
+Ports: ${PORTS}"
 ntfy_send "🚇 Ghost Tunnel UP" "${MSG}" "default" "white_check_mark" && \
     ok "Startup notification sent to ntfy/${NTFY_TOPIC}" || \
     warn "ntfy notification failed (non-fatal)"
@@ -153,7 +169,9 @@ while true; do
             ASSIGNED_REMOTE[$i]="${new_remote:-???}"
 
             ntfy_send "🔄 Ghost Tunnel Reconnected" \
-                "Port ${port} reconnected on ${HOSTNAME}\nNew remote: ${BORE_SERVER}:${new_remote:-???}\nServer: ${BORE_SERVER}" \
+                "Port ${port} reconnected on ${HOSTNAME}
+New remote: ${BORE_SERVER}:${new_remote:-???}
+Server: ${BORE_SERVER}" \
                 "default" "arrows_counterclockwise" || true
 
             ok "Tunnel for port ${port} restarted → ${BORE_SERVER}:${new_remote:-???}"
